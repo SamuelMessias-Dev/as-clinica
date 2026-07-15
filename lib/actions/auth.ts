@@ -80,3 +80,12 @@ export async function registerClinicAction(_state: AuthActionState = initialStat
     success: "Cadastro criado. Verifique o e-mail para confirmar o acesso, se necessário.",
   };
 }
+
+export async function logoutClinicAction() {
+  if (hasSupabaseConfig()) {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  }
+
+  redirect("/login");
+}

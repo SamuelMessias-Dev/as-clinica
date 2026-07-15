@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LogOut, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { logoutClinicAction } from "@/lib/actions/auth";
 
 export function AppHeader() {
   return (
@@ -17,10 +18,12 @@ export function AppHeader() {
               Agendar
             </Link>
           </Button>
-          <Button aria-label="Sair" variant="outline" size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3">
-            <LogOut className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Sair</span>
-          </Button>
+          <form action={logoutClinicAction}>
+            <Button aria-label="Sair" variant="outline" size="sm" className="h-9 w-9 px-0 sm:w-auto sm:px-3">
+              <LogOut className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Sair</span>
+            </Button>
+          </form>
         </div>
       </div>
     </header>
