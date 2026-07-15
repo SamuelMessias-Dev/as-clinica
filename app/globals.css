@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 30 33% 98%;
+    --foreground: 20 14% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 12%;
+    --primary: 346 50% 42%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 30 20% 94%;
+    --muted-foreground: 20 8% 42%;
+    --border: 30 16% 86%;
+    --radius: 0.75rem;
+  }
+
+  * { @apply border-border; }
+  body { @apply bg-background font-sans text-foreground antialiased; }
+}
+
+@layer utilities {
+  @keyframes landing-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes landing-soft-sheen {
+    0% {
+      transform: translateX(-130%);
+    }
+    100% {
+      transform: translateX(130%);
+    }
+  }
+
+  .landing-reveal {
+    animation: landing-fade-up 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .landing-sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-130%);
+    background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.5) 50%, transparent 78%);
+    transition: opacity 240ms ease;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .landing-sheen:hover::after {
+    animation: landing-soft-sheen 950ms ease;
+    opacity: 1;
+  }
+}
