@@ -103,7 +103,7 @@ export default async function ClinicPage({ params }: { params: Promise<{ slug: s
           <div className="landing-reveal max-w-4xl">
             <div className="mb-9 flex items-center gap-4">
               <span className="h-px w-12 bg-[#d7ad2d]" />
-              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-[#b78d1f]">Estética avançada</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-[#b78d1f]">Estética e SPA</p>
             </div>
 
             <h1 className="max-w-4xl font-serif text-6xl font-normal leading-[0.98] text-[#211c18] sm:text-7xl lg:text-8xl">
