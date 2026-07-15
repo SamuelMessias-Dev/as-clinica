@@ -7,6 +7,62 @@ export type Clinic = {
   phone: string;
 };
 
+export type ClinicSettingsRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ClinicSettingsInsert = {
+  id?: string;
+  slug?: string;
+  name: string;
+  description?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ClinicSettingsUpdate = Partial<ClinicSettingsInsert>;
+
+export type ClinicWorkingHour = {
+  id: number;
+  clinic_id: string;
+  weekday: number;
+  is_open: boolean;
+  opens_at: string | null;
+  closes_at: string | null;
+  pause_starts_at: string | null;
+  pause_ends_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ClinicWorkingHourInsert = {
+  id?: number;
+  clinic_id?: string;
+  weekday: number;
+  is_open?: boolean;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  pause_starts_at?: string | null;
+  pause_ends_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ClinicWorkingHourUpdate = Partial<ClinicWorkingHourInsert>;
+
 export type Service = {
   id: string;
   clinic_id: string;
@@ -136,6 +192,8 @@ export type Database = {
       }>;
       leads: Table<Lead>;
       profissionais: Table<Profissional>;
+      clinic_settings: Table<ClinicSettingsRow, ClinicSettingsInsert, ClinicSettingsUpdate>;
+      clinic_working_hours: Table<ClinicWorkingHour, ClinicWorkingHourInsert, ClinicWorkingHourUpdate>;
       user_profiles: Table<UserProfile>;
       procedimento_variacao: Table<ProcedimentoVariacao>;
       procedimentos: Table<Procedimento>;

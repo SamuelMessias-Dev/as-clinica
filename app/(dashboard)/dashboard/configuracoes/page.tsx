@@ -1,6 +1,10 @@
 import { SettingsWorkspace } from "@/components/dashboard/settings-workspace";
-import { mockClinics } from "@/lib/mocks/clinic";
+import { getClinicSettings } from "@/lib/data/clinic-settings";
 
-export default function Page() {
-  return <SettingsWorkspace clinic={mockClinics[0]} />;
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const settings = await getClinicSettings();
+
+  return <SettingsWorkspace initialSettings={settings} />;
 }

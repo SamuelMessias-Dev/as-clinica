@@ -1,28 +1,15 @@
 "use client";
 
-import { Building2, Clock3, MapPin, Save, Settings, Phone } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Building2, Clock3, MapPin, Phone, Save, Settings } from "lucide-react";
+import { type FormEvent, useState } from "react";
+import { saveClinicSettings } from "@/lib/actions/settings";
+import type { ClinicSettingsData, WeekdaySetting } from "@/lib/data/clinic-settings";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { Clinic } from "@/lib/types/database";
-
-type ClinicSettings = {
-  name: string;
-  description: string;
-  address: string;
-  phone: string;
-  email: string;
-  website: string;
-  scheduleStart: string;
-  scheduleEnd: string;
-  pauseStart: string;
-  pauseEnd: string;
-  activeDays: number[];
-};
 
 const weekdayLabels = [
   { value: 0, short: "Dom", label: "Domingo" },
@@ -34,84 +21,73 @@ const weekdayLabels = [
   { value: 6, short: "Sáb", label: "Sábado" },
 ];
 
-function buildDefaultSettings(clinic: Clinic): ClinicSettings {
-  return {
-    name: clinic.name,
-    description: clinic.description,
-    address: clinic.address,
-    phone: clinic.phone,
-    email: "contato@asestetica.com.br",
-    website: "https://www.asestetica.com.br/pg-asclinica",
-    scheduleStart: "08:00",
-    scheduleEnd: "19:00",
-    pauseStart: "12:00",
-    pauseEnd: "13:00",
-    activeDays: [1, 2, 3, 4, 5, 6],
-  };
-}
+function formatDays(days: WeekdaySetting[]) {
+  const labels = weekdayLabels
+    .filter((day) => days.some((setting) => setting.weekday === day.value && setting.isOpen))
+    .map((day) => day.short);
 
-function formatDays(days: number[]) {
-  const labels = weekdayLabels.filter((day) => days.includes(day.value)).map((day) => day.short);
   return labels.length > 0 ? labels.join(", ") : "Nenhum dia selecionado";
 }
 
-export function SettingsWorkspace({ clinic }: { clinic: Clinic }) {
-  const storageKey = useMemo(() => `clinic-settings:${clinic.slug}`, [clinic.slug]);
-  const defaultSettings = useMemo(() => buildDefaultSettings(clinic), [clinic]);
-  const [mounted, setMounted] = useState(false);
+function formatHours(day: WeekdaySetting) {
+  if (!day.isOpen) return "Fechado";
+
+  const pause = day.pauseStartsAt && day.pauseEndsAt ? ` · Pausa ${day.pauseStartsAt} - ${day.pauseEndsAt}` : "";
+  return `${day.opensAt || "--:--"} - ${day.closesAt || "--:--"}${pause}`;
+}
+
+export function SettingsWorkspace({ initialSettings }: { initialSettings: ClinicSettingsData }) {
+  const [settings, setSettings] = useState<ClinicSettingsData>(initialSettings);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [settings, setSettings] = useState<ClinicSettings>(defaultSettings);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw) as Partial<ClinicSettings>;
-      setSettings((current) => ({
-        ...current,
-        ...parsed,
-        activeDays: Array.isArray(parsed.activeDays) ? parsed.activeDays : current.activeDays,
-      }));
-    } catch {
-      // Mantém os defaults se a configuração local estiver inválida.
-    }
-  }, [storageKey]);
-
-  function updateField<K extends keyof ClinicSettings>(key: K, value: ClinicSettings[K]) {
+  function updateField<K extends keyof Omit<ClinicSettingsData, "workingHours">>(key: K, value: ClinicSettingsData[K]) {
     setSaved(false);
+    setError(null);
     setSettings((current) => ({ ...current, [key]: value }));
   }
 
-  function toggleDay(day: number) {
+  function updateWorkingDay(weekday: number, updates: Partial<WeekdaySetting>) {
     setSaved(false);
+    setError(null);
     setSettings((current) => ({
       ...current,
-      activeDays: current.activeDays.includes(day) ? current.activeDays.filter((item) => item !== day) : [...current.activeDays, day],
+      workingHours: current.workingHours.map((day) => (
+        day.weekday === weekday ? { ...day, ...updates } : day
+      )),
     }));
   }
 
-  function handleSave(event: FormEvent<HTMLFormElement>) {
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setIsSubmitting(true);
+    setSaved(false);
+    setError(null);
 
-    if (!mounted) return;
+    const result = await saveClinicSettings(settings);
 
-    window.localStorage.setItem(storageKey, JSON.stringify(settings));
-    setSaved(true);
+    if (result.success && result.data) {
+      setSettings(result.data);
+      setSaved(true);
+    } else {
+      setError(result.error ?? "Não foi possível salvar as configurações.");
+    }
+
+    setIsSubmitting(false);
   }
 
-  const workingDaysLabel = formatDays(settings.activeDays);
+  const workingDaysLabel = formatDays(settings.workingHours);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Configurações"
-        description="Centralize os dados da clínica e o horário de funcionamento que alimentam a operação da recepção."
+        description="Centralize os dados da clínica e os horários de funcionamento que alimentam a operação da recepção."
         actions={
-          <Button type="submit" form="clinic-settings-form" className="gap-2">
+          <Button type="submit" form="clinic-settings-form" className="gap-2" disabled={isSubmitting}>
             <Save className="h-4 w-4" />
-            Salvar alterações
+            {isSubmitting ? "Salvando..." : "Salvar alterações"}
           </Button>
         }
       />
@@ -170,58 +146,92 @@ export function SettingsWorkspace({ clinic }: { clinic: Clinic }) {
             <CardHeader className="border-b p-4 sm:p-5">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Clock3 className="h-4 w-4 text-primary" />
-                Horário de funcionamento
+                Horário de funcionamento por dia
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-5 p-4 sm:p-5">
-              <div className="space-y-2">
-                <Label>Dias de atendimento</Label>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-                  {weekdayLabels.map((day) => {
-                    const active = settings.activeDays.includes(day.value);
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              {weekdayLabels.map((weekday) => {
+                const day = settings.workingHours.find((item) => item.weekday === weekday.value);
+                if (!day) return null;
 
-                    return (
-                      <button
-                        key={day.value}
-                        type="button"
-                        onClick={() => toggleDay(day.value)}
-                        className={cn(
-                          "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
-                          active ? "border-primary bg-primary text-primary-foreground" : "bg-white hover:bg-muted",
-                        )}
-                      >
-                        <span className="block">{day.short}</span>
-                        <span className="mt-1 block text-xs opacity-80">{day.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                return (
+                  <div key={weekday.value} className={cn("rounded-lg border p-4 transition-colors", day.isOpen ? "bg-white" : "bg-muted/30")}>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-medium">{weekday.label}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{formatHours(day)}</p>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary"
+                          checked={day.isOpen}
+                          onChange={(event) => updateWorkingDay(day.weekday, { isOpen: event.target.checked })}
+                        />
+                        Aberto
+                      </label>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="space-y-2">
-                  <Label htmlFor="schedule-start">Abertura</Label>
-                  <Input id="schedule-start" type="time" value={settings.scheduleStart} onChange={(event) => updateField("scheduleStart", event.target.value)} className="h-11" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="schedule-end">Fechamento</Label>
-                  <Input id="schedule-end" type="time" value={settings.scheduleEnd} onChange={(event) => updateField("scheduleEnd", event.target.value)} className="h-11" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pause-start">Início da pausa</Label>
-                  <Input id="pause-start" type="time" value={settings.pauseStart} onChange={(event) => updateField("pauseStart", event.target.value)} className="h-11" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pause-end">Fim da pausa</Label>
-                  <Input id="pause-end" type="time" value={settings.pauseEnd} onChange={(event) => updateField("pauseEnd", event.target.value)} className="h-11" />
-                </div>
-              </div>
+                    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label htmlFor={`opens-at-${day.weekday}`}>Abertura</Label>
+                        <Input
+                          id={`opens-at-${day.weekday}`}
+                          type="time"
+                          value={day.opensAt}
+                          onChange={(event) => updateWorkingDay(day.weekday, { opensAt: event.target.value })}
+                          disabled={!day.isOpen}
+                          className="h-11"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`closes-at-${day.weekday}`}>Fechamento</Label>
+                        <Input
+                          id={`closes-at-${day.weekday}`}
+                          type="time"
+                          value={day.closesAt}
+                          onChange={(event) => updateWorkingDay(day.weekday, { closesAt: event.target.value })}
+                          disabled={!day.isOpen}
+                          className="h-11"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`pause-start-${day.weekday}`}>Início da pausa</Label>
+                        <Input
+                          id={`pause-start-${day.weekday}`}
+                          type="time"
+                          value={day.pauseStartsAt}
+                          onChange={(event) => updateWorkingDay(day.weekday, { pauseStartsAt: event.target.value })}
+                          disabled={!day.isOpen}
+                          className="h-11"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`pause-end-${day.weekday}`}>Fim da pausa</Label>
+                        <Input
+                          id={`pause-end-${day.weekday}`}
+                          type="time"
+                          value={day.pauseEndsAt}
+                          onChange={(event) => updateWorkingDay(day.weekday, { pauseEndsAt: event.target.value })}
+                          disabled={!day.isOpen}
+                          className="h-11"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
 
           {saved ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              Alterações salvas localmente. Depois a gente conecta isso ao banco.
+              Configurações salvas no banco de dados.
+            </div>
+          ) : null}
+          {error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
             </div>
           ) : null}
         </div>
@@ -237,15 +247,24 @@ export function SettingsWorkspace({ clinic }: { clinic: Clinic }) {
                 <p className="mt-1 font-medium">{settings.name}</p>
               </div>
               <div className="rounded-md border bg-background p-3 text-sm">
-                <p className="text-xs text-muted-foreground">Atendimento</p>
-                <p className="mt-1 font-medium">
-                  {settings.scheduleStart} - {settings.scheduleEnd}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">Pausa {settings.pauseStart} - {settings.pauseEnd}</p>
+                <p className="text-xs text-muted-foreground">Dias abertos</p>
+                <p className="mt-1 font-medium">{workingDaysLabel}</p>
               </div>
               <div className="rounded-md border bg-background p-3 text-sm">
-                <p className="text-xs text-muted-foreground">Dias ativos</p>
-                <p className="mt-1 font-medium">{workingDaysLabel}</p>
+                <p className="text-xs text-muted-foreground">Horários por dia</p>
+                <div className="mt-2 space-y-2">
+                  {weekdayLabels.map((weekday) => {
+                    const day = settings.workingHours.find((item) => item.weekday === weekday.value);
+                    if (!day) return null;
+
+                    return (
+                      <div key={weekday.value} className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium">{weekday.short}</span>
+                        <span className="text-right text-muted-foreground">{formatHours(day)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -260,11 +279,11 @@ export function SettingsWorkspace({ clinic }: { clinic: Clinic }) {
             <CardContent className="space-y-3 p-4 text-sm text-muted-foreground">
               <p className="flex gap-3">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                Os dados da clínica aparecem no site público e no topo do painel.
+                Os dados da clínica podem alimentar o site público e o topo do painel.
               </p>
               <p className="flex gap-3">
                 <Phone className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                O telefone alimenta a referência rápida da recepção e dos contatos.
+                Os horários por dia servem como base para regras de agenda da clínica.
               </p>
             </CardContent>
           </Card>
