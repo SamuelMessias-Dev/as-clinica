@@ -19,6 +19,27 @@ function formatMoney(value: number | null) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function parseMoneyInput(value: string) {
+  const cleanValue = value.trim().replace(/[^\d,.-]/g, "");
+
+  if (!cleanValue) return null;
+
+  const lastCommaIndex = cleanValue.lastIndexOf(",");
+  const lastDotIndex = cleanValue.lastIndexOf(".");
+  const decimalIndex = Math.max(lastCommaIndex, lastDotIndex);
+
+  if (decimalIndex >= 0) {
+    const integerPart = cleanValue.slice(0, decimalIndex).replace(/[^\d-]/g, "");
+    const decimalPart = cleanValue.slice(decimalIndex + 1).replace(/\D/g, "");
+    const parsed = Number(`${integerPart || "0"}.${decimalPart || "0"}`);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const parsed = Number(cleanValue.replace(/[^\d-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function getPriceRange(procedure: Pick<ProcedureCatalogItem, "basePrice" | "variations">) {
   const prices = procedure.variations.map((variation) => variation.price).filter((price): price is number => price !== null);
 
@@ -83,13 +104,12 @@ function ProcedureDetails({
 
     if (!name.trim()) return;
 
-    const normalizedPrice = price.trim().replace(/\./g, "").replace(",", ".");
-    const parsedPrice = normalizedPrice ? Number(normalizedPrice) : null;
+    const parsedPrice = parseMoneyInput(price);
 
     onAddVariation(procedure.id, {
       name: name.trim(),
       duration: duration.trim() || null,
-      price: Number.isFinite(parsedPrice) ? parsedPrice : null,
+      price: parsedPrice,
       examples: examples.trim() || null,
     });
 
@@ -105,14 +125,13 @@ function ProcedureDetails({
 
     if (!editName.trim()) return;
 
-    const normalizedPrice = editPrice.trim().replace(/\./g, "").replace(",", ".");
-    const parsedPrice = normalizedPrice ? Number(normalizedPrice) : null;
+    const parsedPrice = parseMoneyInput(editPrice);
 
     onUpdateProcedure(procedure.id, {
       name: editName.trim(),
       description: editDescription.trim() || null,
       baseDuration: editDuration.trim() || null,
-      basePrice: Number.isFinite(parsedPrice) ? parsedPrice : null,
+      basePrice: parsedPrice,
     });
 
     setEditOpen(false);
@@ -139,21 +158,25 @@ function ProcedureDetails({
 
     if (!variationName.trim() || isSubmitting) return;
 
-    const normalizedPrice = variationPrice.trim().replace(/\./g, "").replace(",", ".");
-    const parsedPrice = normalizedPrice ? Number(normalizedPrice) : null;
+    const parsedPrice = parseMoneyInput(variationPrice);
 
     const updates = {
       name: variationName.trim(),
       duration: variationDuration.trim() || null,
-      price: Number.isFinite(parsedPrice) ? parsedPrice : null,
+      price: parsedPrice,
       examples: variationExamples.trim() || null,
     };
 
     try {
       setIsSubmitting(true);
       const res = await updateProcedureVariation(variationId, updates);
-      if (res.success) {
-        onUpdateVariation(procedure.id, variationId, updates);
+      if (res.success && res.data) {
+        onUpdateVariation(procedure.id, variationId, {
+          name: res.data.nome ?? updates.name,
+          duration: res.data.duracao,
+          price: res.data.valor,
+          examples: res.data.exemplos,
+        });
         cancelVariationEdit();
       } else {
         alert("Erro ao salvar no banco de dados: " + res.error);
@@ -544,8 +567,7 @@ function CreateProcedureDrawer({
     event.preventDefault();
     if (!name.trim() || isSubmitting) return;
 
-    const normalizedPrice = price.trim().replace(/\./g, "").replace(",", ".");
-    const parsedPrice = normalizedPrice ? Number(normalizedPrice) : null;
+    const parsedPrice = parseMoneyInput(price);
 
     try {
       setIsSubmitting(true);
@@ -553,7 +575,7 @@ function CreateProcedureDrawer({
         name: name.trim(),
         description: description.trim() || null,
         duration: duration.trim() || null,
-        price: Number.isFinite(parsedPrice) ? parsedPrice : null,
+        price: parsedPrice,
       });
 
       if (res.success && res.data) {

@@ -19,7 +19,7 @@ export async function updateProcedureVariation(
   try {
     const supabase = ((await createClient()) as unknown) as SupabaseClient<Database>;
 
-    const { error } = await supabase
+    const { data: updatedVariation, error } = await supabase
       .from("procedimento_variacao")
       .update({
         nome: data.name,
@@ -27,15 +27,21 @@ export async function updateProcedureVariation(
         valor: data.price,
         exemplos: data.examples,
       })
-      .eq("id", variationId);
+      .eq("id", variationId)
+      .select()
+      .maybeSingle();
 
     if (error) {
       console.error("DB update error for variation ID:", variationId, error);
       return { success: false, error: error.message };
     }
 
+    if (!updatedVariation) {
+      return { success: false, error: "Nenhuma variação foi encontrada para atualizar." };
+    }
+
     revalidatePath("/dashboard/servicos");
-    return { success: true };
+    return { success: true, data: updatedVariation };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Erro interno do servidor.";
     console.error("Server Action updateProcedureVariation error:", error);
