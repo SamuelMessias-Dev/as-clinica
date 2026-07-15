@@ -11,6 +11,8 @@ const landingPath = "/pg-asclinica";
 const whatsappUrl =
   "https://wa.me/5598970094566?text=Ol%C3%A1%2C%20vim%20pelo%20cat%C3%A1logo%20da%20AS%20Est%C3%A9tica%20e%20gostaria%20de%20agendar%20uma%20avalia%C3%A7%C3%A3o.";
 
+export const dynamic = "force-dynamic";
+
 const journey = [
   "Escolha o procedimento",
   "Compartilhe seus dados",
