@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 export type AuthActionState = {
@@ -27,6 +28,10 @@ export async function loginClinicAction(_state: AuthActionState = initialState, 
     return { error: "Preencha e-mail e senha para entrar.", success: null };
   }
 
+  if (!hasSupabaseConfig()) {
+    return { error: "Supabase não configurado na Vercel. Configure as variáveis de ambiente para liberar o login.", success: null };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -45,6 +50,10 @@ export async function registerClinicAction(_state: AuthActionState = initialStat
 
   if (!clinicName || !email || !password) {
     return { error: "Preencha nome da clínica, e-mail e senha.", success: null };
+  }
+
+  if (!hasSupabaseConfig()) {
+    return { error: "Supabase não configurado na Vercel. Configure as variáveis de ambiente para liberar o cadastro.", success: null };
   }
 
   const supabase = await createClient();
