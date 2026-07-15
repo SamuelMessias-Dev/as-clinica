@@ -3,7 +3,10 @@ import { AppSidebar } from "@/components/dashboard/app-sidebar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background lg:flex">
+    <div
+      className="min-h-screen bg-background lg:flex"
+      style={{ "--primary": "45 68% 51%" } as React.CSSProperties}
+    >
       <AppSidebar />
       <div className="min-w-0 flex-1">
         <AppHeader />
