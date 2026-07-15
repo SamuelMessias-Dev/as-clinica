@@ -94,8 +94,8 @@ export function AuthWorkspace() {
       </section>
 
       <section className="flex min-h-screen items-center justify-center px-6 py-10 sm:px-10 lg:px-16">
-        <div className="w-full max-w-xl">
-          <div className="mb-12 flex items-center gap-3 lg:hidden">
+        <div className="w-full max-w-lg">
+          <div className="mb-10 flex items-center gap-3 lg:hidden">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#d7ad2d] text-white">
               <Sparkles className="h-5 w-5" />
             </span>
@@ -103,10 +103,10 @@ export function AuthWorkspace() {
           </div>
 
           <div>
-            <h2 className="font-serif text-5xl font-normal leading-tight text-[#211c18]">
+            <h2 className="font-serif text-4xl font-normal leading-tight text-[#211c18] sm:text-5xl">
               {isLogin ? "Acesse sua conta" : "Cadastre sua clínica"}
             </h2>
-            <p className="mt-4 text-lg leading-8 text-[#8b8178]">
+            <p className="mt-3 text-base leading-7 text-[#8b8178]">
               {isLogin
                 ? "Insira suas credenciais para gerenciar seus agendamentos."
                 : "Crie o acesso administrativo para começar a organizar a operação."}
@@ -114,7 +114,7 @@ export function AuthWorkspace() {
           </div>
 
           {isLogin ? (
-            <form action={loginAction} className="mt-12 space-y-7">
+            <form action={loginAction} className="mt-10 space-y-6">
               <div className="space-y-3">
                 <Label htmlFor="login-email" className="text-xs font-bold uppercase tracking-[0.22em] text-[#8b8178]">
                   E-mail
@@ -124,7 +124,7 @@ export function AuthWorkspace() {
                   name="email"
                   type="email"
                   placeholder="seu@email.com"
-                  className="h-16 rounded-none border-[#e4ddd2] bg-transparent px-5 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
+                  className="h-[52px] rounded-none border-[#e4ddd2] bg-transparent px-4 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
                 />
               </div>
 
@@ -141,12 +141,12 @@ export function AuthWorkspace() {
                   id="login-password"
                   name="password"
                   type="password"
-                  className="h-16 rounded-none border-[#e4ddd2] bg-transparent px-5 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
+                  className="h-[52px] rounded-none border-[#e4ddd2] bg-transparent px-4 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
                 />
               </div>
 
               <Button
-                className="h-16 w-full rounded-none bg-[#d7ad2d] text-sm font-bold uppercase tracking-[0.22em] text-white hover:bg-[#c79b24]"
+                className="h-[52px] w-full rounded-none bg-[#d7ad2d] text-xs font-bold uppercase tracking-[0.22em] text-white hover:bg-[#c79b24]"
                 type="submit"
                 disabled={loginPending}
               >
@@ -156,7 +156,7 @@ export function AuthWorkspace() {
               <StatusMessage state={loginState} />
             </form>
           ) : (
-            <form action={registerAction} className="mt-12 space-y-7">
+            <form action={registerAction} className="mt-10 space-y-6">
               <div className="space-y-3">
                 <Label htmlFor="register-clinic-name" className="text-xs font-bold uppercase tracking-[0.22em] text-[#8b8178]">
                   Nome da clínica
@@ -165,7 +165,7 @@ export function AuthWorkspace() {
                   id="register-clinic-name"
                   name="clinicName"
                   placeholder="AS Estética"
-                  className="h-16 rounded-none border-[#e4ddd2] bg-transparent px-5 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
+                  className="h-[52px] rounded-none border-[#e4ddd2] bg-transparent px-4 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
                 />
               </div>
               <div className="space-y-3">
@@ -177,7 +177,7 @@ export function AuthWorkspace() {
                   name="email"
                   type="email"
                   placeholder="contato@asestetica.com.br"
-                  className="h-16 rounded-none border-[#e4ddd2] bg-transparent px-5 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
+                  className="h-[52px] rounded-none border-[#e4ddd2] bg-transparent px-4 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
                 />
               </div>
               <div className="space-y-3">
@@ -188,12 +188,12 @@ export function AuthWorkspace() {
                   id="register-password"
                   name="password"
                   type="password"
-                  className="h-16 rounded-none border-[#e4ddd2] bg-transparent px-5 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
+                  className="h-[52px] rounded-none border-[#e4ddd2] bg-transparent px-4 text-base placeholder:text-[#c8c0b7] focus:ring-[#d7ad2d]"
                 />
               </div>
 
               <Button
-                className="h-16 w-full rounded-none bg-[#d7ad2d] text-sm font-bold uppercase tracking-[0.22em] text-white hover:bg-[#c79b24]"
+                className="h-[52px] w-full rounded-none bg-[#d7ad2d] text-xs font-bold uppercase tracking-[0.22em] text-white hover:bg-[#c79b24]"
                 type="submit"
                 disabled={registerPending}
               >
@@ -204,7 +204,7 @@ export function AuthWorkspace() {
             </form>
           )}
 
-          <div className="mt-12 border-t border-[#e6ded2] pt-8 text-center text-base text-[#8b8178]">
+          <div className="mt-10 border-t border-[#e6ded2] pt-7 text-center text-sm text-[#8b8178]">
             {isLogin ? "Ainda não tem uma conta? " : "Já tem uma conta? "}
             <ModeButton active={false} onClick={() => setMode(isLogin ? "register" : "login")}>
               {isLogin ? "Cadastre-se" : "Entrar"}
