@@ -17,6 +17,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { AppointmentStatus } from "@/lib/mocks/dashboard";
+import {
+  buildAvailableSlots,
+  getAvailabilityWindow,
+  overlaps,
+  parseDurationMinutes,
+  timeToMinutes,
+  type ClockSpan,
+  type WorkingDay,
+} from "@/lib/scheduling/availability";
 
 type DrawerFormState = {
   customerId: string;
@@ -35,8 +44,6 @@ type DrawerState = {
   open: boolean;
   mode: "create";
 };
-
-const timeOptions = ["08:00", "08:30", "09:00", "09:30", "10:30", "11:30", "14:00", "15:30", "16:00", "17:30"];
 
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
@@ -86,16 +93,30 @@ function createBlankForm(date = todayDate()): DrawerFormState {
   };
 }
 
+function getAppointmentSpan(appointment: AgendaAppointment, durationMinutes: number): ClockSpan | null {
+  const startValue = appointment.dataInicio ?? `${appointment.date}T${appointment.time.length === 5 ? `${appointment.time}:00` : appointment.time}`;
+  const start = new Date(startValue);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const end = appointment.dataFim ? new Date(appointment.dataFim) : null;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end && !Number.isNaN(end.getTime()) ? end.getHours() * 60 + end.getMinutes() : startMinutes + durationMinutes;
+
+  return { id: appointment.id, start: startMinutes, end: endMinutes };
+}
+
 export function AgendamentosWorkspace({
   appointments = [],
   customers = [],
   professionalOptions = [],
   procedures = [],
+  workingHours = [],
 }: {
   appointments?: AgendaAppointment[];
   customers?: CustomerProfile[];
   professionalOptions?: ProfessionalProfile[];
   procedures?: ProcedureCatalogItem[];
+  workingHours?: WorkingDay[];
 }) {
   const router = useRouter();
   const [portalReady, setPortalReady] = useState(false);
@@ -178,6 +199,11 @@ export function AgendamentosWorkspace({
     [selectedProcedure?.baseDuration, selectedVariation?.duration],
   );
 
+  const selectedDurationMinutes = useMemo(
+    () => parseDurationMinutes(selectedVariation?.duration ?? selectedProcedure?.baseDuration ?? null),
+    [selectedProcedure?.baseDuration, selectedVariation?.duration],
+  );
+
   const selectedValue = useMemo(
     () => {
       const base = selectedVariation?.price ?? selectedProcedure?.basePrice ?? null;
@@ -185,6 +211,52 @@ export function AgendamentosWorkspace({
     },
     [form.valueFinal, selectedProcedure?.basePrice, selectedVariation?.price],
   );
+
+  const selectedProfessionalAppointments = useMemo(
+    () =>
+      appointments.filter(
+        (appointment) =>
+          appointment.status !== "cancelado" &&
+          appointment.professionalId === Number(form.professionalId || 0) &&
+          appointment.date === form.date,
+      ),
+    [appointments, form.date, form.professionalId],
+  );
+
+  const availabilityWindow = useMemo(
+    () => getAvailabilityWindow(form.date || today, workingHours, selectedProfessional),
+    [form.date, selectedProfessional, today, workingHours],
+  );
+
+  const availability = useMemo(() => {
+    if (!form.professionalId || !form.date || !selectedProcedure || !selectedProfessional) {
+      return { freeSlots: [] as string[], isConflict: false, isWorkingDay: true };
+    }
+
+    const occupied = selectedProfessionalAppointments
+      .map((appointment) => getAppointmentSpan(appointment, selectedDurationMinutes))
+      .filter((item): item is ClockSpan => Boolean(item));
+
+    if (!availabilityWindow.isOpen) {
+      return { freeSlots: [] as string[], isConflict: false, isWorkingDay: false };
+    }
+
+    const freeSlots = buildAvailableSlots({
+      window: availabilityWindow,
+      durationMinutes: selectedDurationMinutes,
+      occupied,
+    });
+    const currentSpan = form.time ? { start: timeToMinutes(form.time), end: timeToMinutes(form.time) + selectedDurationMinutes } : null;
+    const isConflict = currentSpan
+      ? !freeSlots.includes(form.time) || occupied.some((item) => overlaps(currentSpan, item))
+      : false;
+
+    return {
+      freeSlots: freeSlots.slice(0, 12),
+      isConflict,
+      isWorkingDay: true,
+    };
+  }, [availabilityWindow, form.date, form.professionalId, form.time, selectedDurationMinutes, selectedProfessional, selectedProfessionalAppointments, selectedProcedure]);
 
   function openDrawer() {
     setForm(createBlankForm(today));
@@ -226,6 +298,16 @@ export function AgendamentosWorkspace({
 
     if (!form.customerId || !form.professionalId || !form.procedureId || !form.date || !form.time) {
       setError("Preencha cliente, profissional, procedimento, data e horário.");
+      return;
+    }
+
+    if (!availability.isWorkingDay) {
+      setError(availabilityWindow.reason ?? "Não há atendimento disponível nesse dia.");
+      return;
+    }
+
+    if (availability.isConflict) {
+      setError("Esse horário está ocupado ou fora do funcionamento. Escolha um horário livre sugerido.");
       return;
     }
 
@@ -404,9 +486,16 @@ export function AgendamentosWorkspace({
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Horário</Label>
+                      <div>
+                        <Label>Horário</Label>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {availabilityWindow.isOpen
+                            ? `Funcionamento disponível: ${availabilityWindow.label}`
+                            : availabilityWindow.reason ?? "Sem funcionamento para este dia."}
+                        </p>
+                      </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-                        {timeOptions.map((option) => {
+                        {availability.freeSlots.length > 0 ? availability.freeSlots.map((option) => {
                           const active = form.time === option;
                           return (
                             <button
@@ -421,7 +510,13 @@ export function AgendamentosWorkspace({
                               {option}
                             </button>
                           );
-                        })}
+                        }) : (
+                          <div className="col-span-full rounded-md border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
+                            {form.professionalId && form.procedureId
+                              ? "Nenhum horário livre encontrado para essa combinação."
+                              : "Selecione profissional e procedimento para calcular os horários livres."}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -475,6 +570,11 @@ export function AgendamentosWorkspace({
                 </section>
 
                 {error ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
+                {availability.isConflict ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Esse horário já está ocupado, cai em pausa ou está fora do funcionamento da clínica.
+                  </div>
+                ) : null}
               </div>
 
               <aside className="space-y-4 xl:sticky xl:top-5 xl:self-start">
@@ -531,7 +631,7 @@ export function AgendamentosWorkspace({
                   </CardContent>
                 </Card>
 
-                <Button className="h-11 w-full gap-2" type="submit" disabled={isSubmitting}>
+                <Button className="h-11 w-full gap-2" type="submit" disabled={isSubmitting || availability.isConflict || !availability.isWorkingDay}>
                   <Plus className="h-4 w-4" />
                   {isSubmitting ? "Salvando..." : "Salvar agendamento"}
                 </Button>

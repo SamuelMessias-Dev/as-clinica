@@ -15,6 +15,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { AppointmentStatus } from "@/lib/mocks/dashboard";
+import {
+  buildAvailableSlots,
+  getAvailabilityWindow,
+  overlaps,
+  parseDurationMinutes,
+  timeToMinutes,
+  type ClockSpan,
+  type WorkingDay,
+} from "@/lib/scheduling/availability";
 
 type AppointmentMode = "create" | "edit";
 
@@ -29,12 +38,6 @@ type AppointmentFormState = {
   notes: string;
   origin: string;
   status: AppointmentStatus;
-};
-
-type AppointmentClockSpan = {
-  start: number;
-  end: number;
-  id?: string;
 };
 
 function onlyDigits(value: string) {
@@ -64,38 +67,7 @@ function parseCurrencyInput(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseDurationMinutes(duration: string | null | undefined) {
-  if (!duration) return 60;
-
-  const hourMatch = duration.match(/(\d+)\s*h/i);
-  const minuteMatch = duration.match(/(\d+)\s*min/i);
-
-  if (hourMatch || minuteMatch) {
-    const hours = hourMatch ? Number(hourMatch[1]) : 0;
-    const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
-    return Math.max(hours * 60 + minutes, 15);
-  }
-
-  const firstNumber = duration.match(/\d+/);
-  return firstNumber ? Math.max(Number(firstNumber[0]) || 60, 15) : 60;
-}
-
-function timeToMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function minutesToTime(value: number) {
-  const hours = Math.floor(value / 60);
-  const minutes = value % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-function overlaps(spanA: AppointmentClockSpan, spanB: AppointmentClockSpan) {
-  return spanA.start < spanB.end && spanB.start < spanA.end;
-}
-
-function getAppointmentSpan(appointment: AgendaAppointment, durationMinutes: number): AppointmentClockSpan | null {
+function getAppointmentSpan(appointment: AgendaAppointment, durationMinutes: number): ClockSpan | null {
   const startValue = appointment.dataInicio ?? (appointment.time ? `${appointment.date}T${appointment.time.length === 5 ? `${appointment.time}:00` : appointment.time}` : null);
   const start = startValue ? new Date(startValue) : null;
 
@@ -112,18 +84,6 @@ function getAppointmentSpan(appointment: AgendaAppointment, durationMinutes: num
     end: endMinutes,
     id: appointment.id,
   };
-}
-
-function getWorkingSlots(startMinute = 8 * 60, endMinute = 18 * 60, step = 15) {
-  const slots: string[] = [];
-  for (let minute = startMinute; minute + step <= endMinute; minute += step) {
-    slots.push(minutesToTime(minute));
-  }
-  return slots;
-}
-
-function isSpanInsideWindow(spanStart: number, spanEnd: number, windowStart: number, windowEnd: number) {
-  return spanStart >= windowStart && spanEnd <= windowEnd;
 }
 
 function getTodayDate() {
@@ -184,6 +144,7 @@ export function AppointmentModal({
   professionals,
   procedures,
   appointments = [],
+  workingHours = [],
   onClose,
 }: {
   open: boolean;
@@ -199,6 +160,7 @@ export function AppointmentModal({
   professionals: ProfessionalProfile[];
   procedures: ProcedureCatalogItem[];
   appointments?: AgendaAppointment[];
+  workingHours?: WorkingDay[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -259,14 +221,10 @@ export function AppointmentModal({
     [selectedProcedure?.baseDuration, selectedVariation?.duration],
   );
 
-  const selectedDayOfWeek = useMemo(() => new Date(`${form.date || getTodayDate()}T12:00:00`).getDay(), [form.date]);
-
-  const scheduleStart = selectedProfessional?.scheduleStart ?? "08:00";
-  const scheduleEnd = selectedProfessional?.scheduleEnd ?? "18:00";
-  const pauseStart = selectedProfessional?.pauseStart ?? "12:00";
-  const pauseEnd = selectedProfessional?.pauseEnd ?? "13:00";
-  const activeDays = selectedProfessional?.activeDays ?? [1, 2, 3, 4, 5];
-  const isWorkingDay = activeDays.length > 0 ? activeDays.includes(selectedDayOfWeek) : true;
+  const availabilityWindow = useMemo(
+    () => getAvailabilityWindow(form.date || getTodayDate(), workingHours, selectedProfessional),
+    [form.date, selectedProfessional, workingHours],
+  );
 
   const selectedProfessionalAppointments = useMemo(
     () =>
@@ -293,33 +251,28 @@ export function AppointmentModal({
 
     const occupied = selectedProfessionalAppointments
       .map((item) => getAppointmentSpan(item, selectedDurationMinutes))
-      .filter((item): item is AppointmentClockSpan => Boolean(item));
+        .filter((item): item is ClockSpan => Boolean(item));
 
-    if (!isWorkingDay) {
+    if (!availabilityWindow.isOpen) {
       return { freeSlots: [] as string[], isConflict: false, isWorkingDay: false };
     }
 
-    const scheduleWindow = {
-      start: timeToMinutes(scheduleStart),
-      end: timeToMinutes(scheduleEnd),
-    };
-    const pauseWindow = pauseStart && pauseEnd ? { start: timeToMinutes(pauseStart), end: timeToMinutes(pauseEnd) } : null;
-
-    const freeSlots = getWorkingSlots(scheduleWindow.start, scheduleWindow.end).filter((slot) => {
-      const span = { start: timeToMinutes(slot), end: timeToMinutes(slot) + selectedDurationMinutes };
-      const fitsWorkday = isSpanInsideWindow(span.start, span.end, scheduleWindow.start, scheduleWindow.end);
-      const overlapsPause = pauseWindow ? overlaps(span, pauseWindow) : false;
-      return fitsWorkday && !overlapsPause && !occupied.some((item) => overlaps(span, item));
+    const freeSlots = buildAvailableSlots({
+      window: availabilityWindow,
+      durationMinutes: selectedDurationMinutes,
+      occupied,
     });
 
-    const isConflict = currentSpan ? occupied.some((item) => overlaps(currentSpan, item)) : false;
+    const isConflict = currentSpan
+      ? !freeSlots.includes(form.time) || occupied.some((item) => overlaps(currentSpan, item))
+      : false;
 
     return {
       freeSlots: freeSlots.slice(0, 8),
       isConflict,
       isWorkingDay: true,
     };
-  }, [currentSpan, form.date, form.professionalId, isWorkingDay, pauseEnd, pauseStart, scheduleEnd, scheduleStart, selectedDurationMinutes, selectedProfessional, selectedProfessionalAppointments, selectedProcedure]);
+  }, [availabilityWindow, currentSpan, form.date, form.professionalId, form.time, selectedDurationMinutes, selectedProfessional, selectedProfessionalAppointments, selectedProcedure]);
 
   useEffect(() => {
     if (!open || !selectedProcedure) return;
@@ -436,7 +389,7 @@ export function AppointmentModal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (mode === "create" && !availability.isWorkingDay) {
-      setError("Este profissional não atende nesse dia da semana.");
+      setError(availabilityWindow.reason ?? "Não há atendimento disponível nesse dia.");
       return;
     }
     if (mode === "create" && availability.isConflict) {
@@ -550,9 +503,9 @@ export function AppointmentModal({
                       <div>
                         <h4 className="font-medium">Horários livres sugeridos</h4>
                         <p className="text-sm text-muted-foreground">
-                          {isWorkingDay
-                            ? `Baseado em ${selectedDurationMinutes} min, na jornada ${scheduleStart} - ${scheduleEnd} e na pausa ${pauseStart} - ${pauseEnd}.`
-                            : "Este profissional não atende nesse dia da semana."}
+                          {availabilityWindow.isOpen
+                            ? `Baseado em ${selectedDurationMinutes} min dentro do funcionamento ${availabilityWindow.label}.`
+                            : availabilityWindow.reason ?? "Não há atendimento disponível nesse dia."}
                         </p>
                       </div>
                       <span className="text-xs text-muted-foreground">
@@ -574,7 +527,7 @@ export function AppointmentModal({
                             {slot}
                           </Button>
                         ))
-                      ) : !isWorkingDay ? (
+                      ) : !availability.isWorkingDay ? (
                         <p className="text-sm text-muted-foreground">Nenhum horário disponível para esse dia.</p>
                       ) : (
                         <p className="text-sm text-muted-foreground">Nenhum horário livre encontrado nesse período.</p>
@@ -753,7 +706,7 @@ export function AppointmentModal({
               ) : null}
               {selectedProfessional && !availability.isWorkingDay ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  Este profissional não atende nesse dia da semana.
+                  {availabilityWindow.reason ?? "Não há atendimento disponível nesse dia."}
                 </div>
               ) : null}
             </div>

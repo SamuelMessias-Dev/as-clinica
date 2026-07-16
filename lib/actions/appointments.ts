@@ -3,7 +3,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Agendamento, Database, Procedimento, ProcedimentoVariacao, Profissional } from "@/lib/types/database";
+import {
+  getAvailabilityWindow,
+  isSpanInsideWindow,
+  overlaps,
+  parseDurationMinutes,
+  type WorkingDay,
+} from "@/lib/scheduling/availability";
+import type { Agendamento, ClinicWorkingHour, Database, Procedimento, ProcedimentoVariacao, Profissional } from "@/lib/types/database";
 
 export type UpsertAppointmentData = {
   leadId: number;
@@ -27,23 +34,6 @@ function buildLocalTimestamp(date: string, time: string) {
   return `${date}T${time.length === 5 ? `${time}:00` : time}`;
 }
 
-function parseDurationMinutes(duration: string | null | undefined) {
-  if (!duration) return 60;
-
-  const hourMatch = duration.match(/(\d+)\s*h/i);
-  const minuteMatch = duration.match(/(\d+)\s*min/i);
-
-  if (hourMatch || minuteMatch) {
-    const hours = hourMatch ? Number(hourMatch[1]) : 0;
-    const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
-    const total = hours * 60 + minutes;
-    return total > 0 ? total : 60;
-  }
-
-  const firstNumber = duration.match(/\d+/);
-  return firstNumber ? Number(firstNumber[0]) || 60 : 60;
-}
-
 function parseLocalTimestamp(value: string | null | undefined) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -63,25 +53,6 @@ function formatLocalTimestamp(date: Date) {
 
 function addMinutes(timestamp: Date, minutes: number) {
   return new Date(timestamp.getTime() + minutes * 60_000);
-}
-
-function timeToMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function overlapsSpan(startA: number, endA: number, startB: number, endB: number) {
-  return startA < endB && startB < endA;
-}
-
-function isSpanInsideWindow(spanStart: number, spanEnd: number, windowStart: number, windowEnd: number) {
-  return spanStart >= windowStart && spanEnd <= windowEnd;
-}
-
-function isDateAllowed(date: string, professional?: Pick<Profissional, "agenda_dias_semana"> | null) {
-  const weekdays = professional?.agenda_dias_semana ?? [1, 2, 3, 4, 5];
-  const day = new Date(`${date}T12:00:00`).getDay();
-  return weekdays.length > 0 ? weekdays.includes(day) : true;
 }
 
 function normalizePayload(data: UpsertAppointmentData, timestamp: string, endTimestamp: string | null, endTime: string | null) {
@@ -147,11 +118,12 @@ function buildAppointmentRange(date: string, time: string, durationMinutes: numb
 }
 
 async function loadAppointmentContext(supabase: SupabaseClient<Database>, data: UpsertAppointmentData) {
-  const [proceduresResponse, variationsResponse, appointmentsResponse, professionalResponse] = await Promise.all([
+  const [proceduresResponse, variationsResponse, appointmentsResponse, professionalResponse, workingHoursResponse] = await Promise.all([
     supabase.from("procedimentos").select("*"),
     supabase.from("procedimento_variacao").select("*"),
     supabase.from("agendamento").select("*").eq("profissional_id", data.professionalId),
     supabase.from("profissionais").select("*").eq("id", data.professionalId).maybeSingle(),
+    supabase.from("clinic_working_hours").select("*").eq("clinic_id", "as-estetica").order("weekday", { ascending: true }),
   ]);
 
   return {
@@ -159,41 +131,49 @@ async function loadAppointmentContext(supabase: SupabaseClient<Database>, data: 
     variations: (variationsResponse.data ?? []) as ProcedimentoVariacao[],
     appointments: (appointmentsResponse.data ?? []) as Agendamento[],
     professional: (professionalResponse.data ?? null) as Profissional | null,
-    errors: [proceduresResponse.error, variationsResponse.error, appointmentsResponse.error, professionalResponse.error].filter(Boolean),
+    workingHours: (workingHoursResponse.data ?? []) as ClinicWorkingHour[],
+    errors: [proceduresResponse.error, variationsResponse.error, appointmentsResponse.error, professionalResponse.error, workingHoursResponse.error].filter(Boolean),
   };
+}
+
+function normalizeWorkingHours(rows: ClinicWorkingHour[]): WorkingDay[] {
+  return rows.map((day) => ({
+    weekday: day.weekday,
+    isOpen: day.is_open,
+    opensAt: day.opens_at ?? "",
+    closesAt: day.closes_at ?? "",
+    pauseStartsAt: day.pause_starts_at ?? "",
+    pauseEndsAt: day.pause_ends_at ?? "",
+  }));
 }
 
 function validateProfessionalAvailability(
   professional: Profissional | null,
+  workingHours: ClinicWorkingHour[],
   date: string,
   start: Date,
   end: Date,
 ) {
-  const scheduleStart = professional?.agenda_inicio ?? "08:00";
-  const scheduleEnd = professional?.agenda_fim ?? "18:00";
-  const pauseStart = professional?.agenda_pausa_inicio ?? "12:00";
-  const pauseEnd = professional?.agenda_pausa_fim ?? "13:00";
-
-  if (!isDateAllowed(date, professional)) {
-    return "Este profissional não atende nesse dia da semana.";
-  }
-
+  const availabilityWindow = getAvailabilityWindow(date, normalizeWorkingHours(workingHours), {
+    scheduleStart: professional?.agenda_inicio ?? undefined,
+    scheduleEnd: professional?.agenda_fim ?? undefined,
+    pauseStart: professional?.agenda_pausa_inicio ?? undefined,
+    pauseEnd: professional?.agenda_pausa_fim ?? undefined,
+    activeDays: professional?.agenda_dias_semana ?? undefined,
+  });
   const appointmentStart = start.getHours() * 60 + start.getMinutes();
   const appointmentEnd = end.getHours() * 60 + end.getMinutes();
-  const workWindowStart = timeToMinutes(scheduleStart);
-  const workWindowEnd = timeToMinutes(scheduleEnd);
 
-  if (!isSpanInsideWindow(appointmentStart, appointmentEnd, workWindowStart, workWindowEnd)) {
-    return "O horário informado está fora da jornada de atendimento do profissional.";
+  if (!availabilityWindow.isOpen) {
+    return availabilityWindow.reason ?? "Não há atendimento disponível nesse dia.";
   }
 
-  if (pauseStart && pauseEnd) {
-    const pauseWindowStart = timeToMinutes(pauseStart);
-    const pauseWindowEnd = timeToMinutes(pauseEnd);
+  if (!isSpanInsideWindow(appointmentStart, appointmentEnd, availabilityWindow.start, availabilityWindow.end)) {
+    return `O horário informado está fora do funcionamento disponível (${availabilityWindow.label}).`;
+  }
 
-    if (overlapsSpan(appointmentStart, appointmentEnd, pauseWindowStart, pauseWindowEnd)) {
-      return "O horário informado cai no intervalo de pausa do profissional.";
-    }
+  if (availabilityWindow.pauses.some((pause) => overlaps({ start: appointmentStart, end: appointmentEnd }, pause))) {
+    return "O horário informado cai em um intervalo de pausa.";
   }
 
   return null;
@@ -212,7 +192,7 @@ function hasOverlap(startA: Date, endA: Date, startB: Date, endB: Date) {
 export async function createAppointment(data: UpsertAppointmentData) {
   try {
     const supabase = ((await createClient()) as unknown) as SupabaseClient<Database>;
-    const { procedures, variations, appointments, professional, errors } = await loadAppointmentContext(supabase, data);
+    const { procedures, variations, appointments, professional, workingHours, errors } = await loadAppointmentContext(supabase, data);
 
     if (errors.length) {
       const message = errors[0]?.message ?? "Erro ao consultar agenda.";
@@ -232,7 +212,7 @@ export async function createAppointment(data: UpsertAppointmentData) {
       return { success: false, error: "Não foi possível calcular o horário do agendamento." };
     }
 
-    const availabilityError = validateProfessionalAvailability(professional, data.date, start, end);
+    const availabilityError = validateProfessionalAvailability(professional, workingHours, data.date, start, end);
     if (availabilityError) {
       return { success: false, error: availabilityError };
     }
@@ -283,7 +263,7 @@ export async function createAppointment(data: UpsertAppointmentData) {
 export async function updateAppointment(id: number, data: UpsertAppointmentData) {
   try {
     const supabase = ((await createClient()) as unknown) as SupabaseClient<Database>;
-    const { procedures, variations, appointments, professional, errors } = await loadAppointmentContext(supabase, data);
+    const { procedures, variations, appointments, professional, workingHours, errors } = await loadAppointmentContext(supabase, data);
 
     if (errors.length) {
       const message = errors[0]?.message ?? "Erro ao consultar agenda.";
@@ -303,7 +283,7 @@ export async function updateAppointment(id: number, data: UpsertAppointmentData)
       return { success: false, error: "Não foi possível calcular o horário do agendamento." };
     }
 
-    const availabilityError = validateProfessionalAvailability(professional, data.date, start, end);
+    const availabilityError = validateProfessionalAvailability(professional, workingHours, data.date, start, end);
     if (availabilityError) {
       return { success: false, error: availabilityError };
     }

@@ -14,10 +14,16 @@ import type { ProcedureCatalogItem } from "@/lib/data/procedures";
 import { cn } from "@/lib/utils";
 import type { AgendaAppointment } from "@/lib/data/agenda";
 import type { DashboardProfessional } from "@/lib/mocks/dashboard";
+import {
+  getAvailabilityWindow,
+  getWorkingSlots,
+  overlaps,
+  timeToMinutes,
+  type ClockSpan,
+  type WorkingDay,
+} from "@/lib/scheduling/availability";
 
 type ViewMode = "day" | "week" | "month";
-
-const timeSlots = ["08:00", "09:00", "10:30", "11:30", "14:00", "15:30", "16:00", "17:30"];
 
 const viewOptions: Array<{ value: ViewMode; label: string; icon: typeof CalendarDays }> = [
   { value: "day", label: "Dia", icon: CalendarDays },
@@ -31,6 +37,7 @@ type AgendaWorkspaceProps = {
   customers?: CustomerProfile[];
   professionalOptions?: ProfessionalProfile[];
   procedures?: ProcedureCatalogItem[];
+  workingHours?: WorkingDay[];
 };
 
 function buildWeekDays(baseDate: string) {
@@ -68,12 +75,25 @@ function shiftDate(dateValue: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function getAppointmentSpan(appointment: AgendaAppointment): ClockSpan | null {
+  const startValue = appointment.dataInicio ?? `${appointment.date}T${appointment.time.length === 5 ? `${appointment.time}:00` : appointment.time}`;
+  const start = new Date(startValue);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const end = appointment.dataFim ? new Date(appointment.dataFim) : null;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end && !Number.isNaN(end.getTime()) ? end.getHours() * 60 + end.getMinutes() : startMinutes + 30;
+
+  return { id: appointment.id, start: startMinutes, end: endMinutes };
+}
+
 export function AgendaWorkspace({
   appointments = [],
   professionals = [],
   customers = [],
   professionalOptions = [],
   procedures = [],
+  workingHours = [],
 }: AgendaWorkspaceProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(appointments[0]?.date ?? new Date().toISOString().slice(0, 10));
@@ -108,6 +128,20 @@ export function AgendaWorkspace({
     () => professionalOptions.find((professional) => String(professional.id) === selectedProfessionalId),
     [professionalOptions, selectedProfessionalId],
   );
+
+  const availabilityWindow = useMemo(
+    () => getAvailabilityWindow(selectedDate, workingHours, selectedProfessional),
+    [selectedDate, selectedProfessional, workingHours],
+  );
+
+  const dayTimeSlots = useMemo(() => {
+    if (!availabilityWindow.isOpen) return [];
+
+    return getWorkingSlots(availabilityWindow.start, availabilityWindow.end, 30).filter((slot) => {
+      const span = { start: timeToMinutes(slot), end: timeToMinutes(slot) + 30 };
+      return !availabilityWindow.pauses.some((pause) => overlaps(span, pause));
+    });
+  }, [availabilityWindow]);
 
   function openCreateDrawer(date = selectedDate, time?: string) {
     setSelectedDate(date);
@@ -230,14 +264,22 @@ export function AgendaWorkspace({
               {selectedProfessional ? <p className="mt-1 text-xs text-muted-foreground">Filtrado por {selectedProfessional.name}</p> : null}
             </CardHeader>
             <CardContent className="space-y-2 p-4 pt-0">
-              {selectedAppointments.length === 0 ? (
+              {!availabilityWindow.isOpen ? (
                 <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
-                  Nenhum agendamento nesse dia para este filtro. Os horários livres continuam disponíveis para criação.
+                  {availabilityWindow.reason ?? "A clínica não possui funcionamento cadastrado para esse dia."}
+                </div>
+              ) : selectedAppointments.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+                  Nenhum agendamento nesse dia para este filtro. Horários baseados no funcionamento {availabilityWindow.label}.
                 </div>
               ) : null}
 
-              {timeSlots.map((time) => {
-                const appointment = selectedAppointments.find((item) => item.time === time);
+              {dayTimeSlots.map((time) => {
+                const slotSpan = { start: timeToMinutes(time), end: timeToMinutes(time) + 30 };
+                const appointment = selectedAppointments.find((item) => {
+                  const appointmentSpan = getAppointmentSpan(item);
+                  return appointmentSpan ? overlaps(slotSpan, appointmentSpan) : item.time === time;
+                });
 
                 return (
                   <button
@@ -385,6 +427,7 @@ export function AgendaWorkspace({
         professionals={professionalOptions}
         procedures={procedures}
         appointments={visibleAppointments}
+        workingHours={workingHours}
       />
     </div>
   );
